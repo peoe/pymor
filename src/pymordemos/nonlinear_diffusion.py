@@ -5,21 +5,30 @@
 
 from typer import Argument, run
 
+from pymor.bindings.ngsolve import NGSolveVectorSpace, NGSolveOperator, NGSolveVisualizer
+from pymor.tools.typer import Choices
+
 
 def main(
     dim: int = Argument(..., help='Spatial dimension of the problem.'),
     n: int = Argument(..., help='Number of mesh intervals per spatial dimension.'),
     order: int = Argument(..., help='Finite element order.'),
+    model: Choices('fenics ngsolve') = Argument(..., help='High-dimensional model.'),
 ):
-    """Reduces a FEniCS-based nonlinear diffusion problem using POD/DEIM."""
-    from pymor.tools import mpi
+    """Reduces a FEniCS/NgSolve-based nonlinear diffusion problem using POD/DEIM."""
+    if model == 'fenics':
+        from pymor.tools import mpi
 
-    if mpi.parallel:
-        from pymor.models.mpi import mpi_wrap_model
-        local_models = mpi.call(mpi.function_call_manage, discretize, dim, n, order)
-        fom = mpi_wrap_model(local_models, use_with=True, pickle_local_spaces=False)
+        if mpi.parallel:
+            from pymor.models.mpi import mpi_wrap_model
+            local_models = mpi.call(mpi.function_call_manage, discretize_fenics, dim, n, order)
+            fom = mpi_wrap_model(local_models, use_with=True, pickle_local_spaces=False)
+        else:
+            fom = discretize_fenics(dim, n, order)
+    elif model == 'ngsolve':
+        fom = discretize_ngsolve(dim, n, order)
     else:
-        fom = discretize(dim, n, order)
+        raise NotImplementedError()
 
     parameter_space = fom.parameters.space((0, 1000.))
 
@@ -72,7 +81,7 @@ def main(
     print(f'Median of ROM speedup: {np.median(speedups)}')
 
 
-def discretize(dim, n, order):
+def discretize_fenics(dim, n, order):
     # ### problem definition
     import dolfin as df
 
@@ -116,6 +125,53 @@ def discretize(dim, n, order):
 
     fom = StationaryModel(op, rhs,
                           visualizer=FenicsVisualizer(space))
+
+    return fom
+
+
+def discretize_ngsolve(dim, n, order):
+    # ### problem definition
+    from ngsolve import (GridFunction, BND, Mesh, H1, CoefficientFunction, LinearForm,
+                         BilinearForm, Preconditioner, grad, solvers, sin, InnerProduct, dx, Parameter)
+    from ngsolve import x as x_expr, y as y_expr
+    from netgen.csg import unit_cube
+    from netgen.geom2d import unit_square
+
+    if dim == 2:
+        mesh = Mesh(unit_square.GenerateMesh(maxh=1/n))
+    elif dim == 3:
+        mesh = Mesh(unit_cube.GenerateMesh(maxh=1/n))
+    else:
+        raise NotImplementedError
+
+    V = H1(mesh, order=order, dirichlet="right")
+
+    g = CoefficientFunction(1.0)
+    c = Parameter(1.)
+
+    bc = GridFunction(V)
+    bc.Set(g, BND)
+
+    v = V.TestFunction()
+    u = V.TrialFunction()
+    f = x_expr*sin(y_expr)
+    F = BilinearForm(V, symmetric=False)
+    F += InnerProduct((1 + c*u*u)*grad(u), grad(v))*dx - f*v*dx
+
+    # ### pyMOR wrapping
+    from pymor.bindings.fenics import FenicsVectorSpace, FenicsOperator, FenicsVisualizer
+    from pymor.models.basic import StationaryModel
+    from pymor.operators.constructions import VectorOperator
+
+    space = NGSolveVectorSpace(V)
+    op = NGSolveOperator(F, space, space, u, (bc,),
+                        parameter_setter=lambda mu: c.Set(mu['c'].item()),
+                        parameters={'c': 1},
+                        solver_options={'inverse': {'type': 'newton', 'rtol': 1e-6}})
+    rhs = VectorOperator(op.range.zeros())
+
+    fom = StationaryModel(op, rhs,
+                          visualizer=NGSolveVisualizer(mesh, V))
 
     return fom
 

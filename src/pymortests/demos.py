@@ -118,9 +118,11 @@ HAPOD_ARGS = (
     ('hapod', ['--snap=3', '--procs=2', 1e-2, 10, 100]),
 )
 
-FENICS_NONLINEAR_ARGS = (
-    ('fenics_nonlinear', [2, 10, 2]),
-    ('fenics_nonlinear', [3, 5, 1]),
+NONLINEAR_DIFFUSION_ARGS = (
+    ('nonlinear_diffusion', [2, 10, 2, 'fenics']),
+    ('nonlinear_diffusion', [3, 5, 1, 'fenics']),
+    ('nonlinear_diffusion', [2, 10, 2, 'ngsolve']),
+    ('nonlinear_diffusion', [3, 5, 1, 'ngsolve']),
 )
 
 DEMO_ARGS = (
@@ -133,7 +135,7 @@ DEMO_ARGS = (
     + PARABOLIC_MOR_ARGS
     + SYS_MOR_ARGS
     + HAPOD_ARGS
-    + FENICS_NONLINEAR_ARGS
+ NONLINEAR_DIFFUSION_ARGS
 )
 DEMO_ARGS = [(f'pymordemos.{a}', b) for (a, b) in DEMO_ARGS]
 
