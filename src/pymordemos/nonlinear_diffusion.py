@@ -5,7 +5,6 @@
 
 from typer import Argument, run
 
-from pymor.bindings.ngsolve import NGSolveVectorSpace, NGSolveOperator, NGSolveVisualizer
 from pymor.tools.typer import Choices
 
 
@@ -29,6 +28,8 @@ def main(
         fom = discretize_ngsolve(dim, n, order)
     else:
         raise NotImplementedError()
+
+    fom.visualize(fom.solve(0.5), filename=f'{model}_fom_0,5')
 
     parameter_space = fom.parameters.space((0, 1000.))
 
@@ -79,6 +80,9 @@ def main(
         speedups.append(t_fom / t_rom)
     print(f'Maximum relative ROM error: {max(errs)}')
     print(f'Median of ROM speedup: {np.median(speedups)}')
+
+    fom.visualize(U_red, filename=f'{model}_reconstructed_mu={mu["c"][0]}.pvd')
+    fom.visualize(U, filename=f'{model}_full_mu={mu["c"][0]}.pvd')
 
 
 def discretize_fenics(dim, n, order):
@@ -131,7 +135,7 @@ def discretize_fenics(dim, n, order):
 
 def discretize_ngsolve(dim, n, order):
     # ### problem definition
-    from ngsolve import (GridFunction, BND, Mesh, H1, CoefficientFunction, LinearForm,
+    from ngsolve import (GridFunction, BND, Mesh, H1, CoefficientFunction, LinearForm,SymbolicBFI,
                          BilinearForm, Preconditioner, grad, solvers, sin, InnerProduct, dx, Parameter)
     from ngsolve import x as x_expr, y as y_expr
     from netgen.csg import unit_cube
@@ -150,21 +154,22 @@ def discretize_ngsolve(dim, n, order):
     c = Parameter(1.)
 
     bc = GridFunction(V)
-    bc.Set(g, BND)
+    bc.Set(g, definedon=mesh.Boundaries("right"))
 
     v = V.TestFunction()
     u = V.TrialFunction()
     f = x_expr*sin(y_expr)
     F = BilinearForm(V, symmetric=False)
-    F += InnerProduct((1 + c*u*u)*grad(u), grad(v))*dx - f*v*dx
+    F += SymbolicBFI(InnerProduct((1 + c*u*u)*grad(u), grad(v)) - f*v)
+
 
     # ### pyMOR wrapping
-    from pymor.bindings.fenics import FenicsVectorSpace, FenicsOperator, FenicsVisualizer
+    from pymor.bindings.ngsolve import NGSolveVectorSpace, NGSolveOperator, NGSolveVisualizer
     from pymor.models.basic import StationaryModel
     from pymor.operators.constructions import VectorOperator
 
     space = NGSolveVectorSpace(V)
-    op = NGSolveOperator(F, space, space, u, (bc,),
+    op = NGSolveOperator(F, space, space, u, dirichlet_bc=bc,
                         parameter_setter=lambda mu: c.Set(mu['c'].item()),
                         parameters={'c': 1},
                         solver_options={'inverse': {'type': 'newton', 'rtol': 1e-6}})

@@ -6,6 +6,8 @@ from pathlib import Path
 from pymor.core.config import config
 from pymor.core.defaults import defaults
 from pymor.tools.io import change_to_directory
+from pymor.operators.interface import Operator
+from pymor.operators.numpy import NumpyMatrixOperator
 
 if config.HAVE_NGSOLVE:
     import ngsolve as ngs
@@ -200,3 +202,155 @@ if config.HAVE_NGSOLVE:
 
                 for u, name in zip(U, legend):
                     ngs.Draw(u._list[0].real_part.impl, self.mesh, name=name)
+
+
+    class NGSolveOperator(Operator):
+        """Wraps a general NGSolve Bilinear form as an |Operator|."""
+
+        linear = False
+        parametric = True
+
+        def __init__(self, form, source_space, range_space, source_function, dirichlet_bc=None,
+                     parameter_setter=None, parameters={}, solver_options=None, name=None):
+            self.__auto_init(locals())
+            self.source = source_space
+            self.range = range_space
+            self.parameters_own = parameters
+
+            self._null = ngs.LinearForm(form.space)
+            self._null += 0 * form.space.TestFunction() * ngs.dx
+            self._null.Assemble()
+
+
+        def _set_mu(self, mu=None):
+            assert self.parameters.assert_compatible(mu)
+            if self.parameter_setter:
+                self.parameter_setter(mu)
+
+        def apply(self, U, mu=None):
+            assert U in self.source
+            self._set_mu(mu)
+            R = []
+            for u in U._list:
+                if u.imag_part is not None:
+                    raise NotImplementedError
+                r = self.range.zero_vector()
+                r.real_part.impl.vec.data = self.dirichlet_bc.vec
+                # not clear if this touches only freedofs
+                self.form.Apply(u.real_part.impl.vec, r.real_part.impl.vec)
+                R.append(r)
+            return self.range.make_array(R)
+
+        def jacobian(self, U, mu=None):
+            assert U in self.source and len(U) == 1
+            if U._list[0].imag_part is not None:
+                raise NotImplementedError
+            self._set_mu(mu)
+
+            self.form.AssembleLinearization(U._list[0].real_part.impl.vec)
+            matrix = self.form.mat
+            copy = matrix.CreateMatrix()
+            copy.AsVector().data = matrix.AsVector()
+            return NGSolveMatrixOperator(copy, self.range, self.source)
+
+        def restricted(self, restrict_to_dofs):
+            restricted_list = list(restrict_to_dofs)
+            re_elements = [[] for _ in restrict_to_dofs]
+            affected_element_nodes = set()
+            for element in self.range.V.Elements():
+                for element_dof in element.dofs:
+                    if element_dof in restrict_to_dofs:
+                        re_elements[restricted_list.index(element_dof)].append(element)
+                        affected_element_nodes.add(element.elementnode)
+            source_dofs = set()
+            for element in self.source.V.Elements():
+                if element.elementnode in affected_element_nodes:
+                    source_dofs.update(element.dofs)
+            source_dofs = np.array(sorted(source_dofs), dtype=np.intc)
+            return RestrictedNGSolveOperator(self, source_dofs, restrict_to_dofs, re_elements), source_dofs
+
+        def apply_inverse(self, V, mu=None, initial_guess=None, least_squares=False):
+            if least_squares or len(V) > 1:
+                raise NotImplementedError
+            self._set_mu(mu)
+
+            result = ngs.GridFunction(self.range.V)
+            result.vec.data = self.dirichlet_bc.vec
+
+            c = ngs.Preconditioner(self.form, "local")  # <- Jacobi preconditioner
+            # c = Preconditioner(a,"direct") #<- sparse direct solver
+            c.Update()
+            ngs.solvers.BVP(bf=self.form, lf=self._null, gf=result, pre=c)
+
+            rr = self.range.zeros(len(V))
+            rr._list[0].real_part.impl.vec.data = result.vec
+            return rr
+
+
+    class RestrictedNGSolveOperator(Operator):
+
+        linear = False
+
+        def __init__(self, unrestricted_op, source_dofs, restricted_range_dofs, restricted_elements):
+            self.__auto_init(locals())
+            self.source = NumpyVectorSpace(len(source_dofs))
+            self.range = NumpyVectorSpace(len(restricted_range_dofs))
+
+            def _make_restricted_space(V, restricted_dofs):
+                mask = ngs.BitArray([b in restricted_dofs for b in range(V.ndof)])
+                restricted_space = ngs.Compress(V, mask)
+                assert restricted_space.ndof == len(restricted_dofs)
+                return NGSolveVectorSpace(restricted_space)
+            # not actually used atm
+            self.restricted_source_space = _make_restricted_space(unrestricted_op.source.V, source_dofs)
+            self.restricted_range_space = _make_restricted_space(unrestricted_op.range.V, restricted_range_dofs)
+
+        def apply(self, U, mu=None):
+            assert U in self.source
+            self.unrestricted_op._set_mu(mu)
+            UU = self.unrestricted_op.source.zeros(len(U))
+            for uu, u in zip(UU._list, U.to_numpy()):
+                uu.real_part.to_numpy()[self.source_dofs] = np.ascontiguousarray(u)
+
+            VV =  self.unrestricted_op.range.zeros(len(U))
+            is_free_dof = self.unrestricted_op.range.V.FreeDofs()
+            for patch in self.restricted_elements:
+                for element in patch:
+                    local_dofs = element.dofs
+                    finite_elment = self.unrestricted_op.source.V.GetFE(element)
+
+                    trafo = element.GetTrafo()
+                    for uu, vv in zip(UU._list,VV._list):
+                        vv.real_part.impl.Set(self.unrestricted_op.dirichlet_bc, ngs.BND)
+                        uu_vec = uu.real_part.impl.vec
+                        uu_loc = ngs.Vector([uu_vec[dof] for dof in local_dofs])
+                        vv_loc = ngs.Vector([vv.real_part.impl.vec[dof] for dof in local_dofs])
+                        element_matrix = ngs.Matrix(len(local_dofs), len(local_dofs))
+                        element_vector = ngs.Vector(len(local_dofs))
+                        for integrator in self.unrestricted_op.form.integrators:
+                            element_matrix += integrator.CalcLinearizedElementMatrix(finite_elment, uu_loc, trafo)
+                            element_vector += integrator.ApplyElementMatrix(finite_elment, uu_loc, trafo)
+                        vv_loc += element_matrix * element_vector
+                        for loc_value, i in zip(vv_loc, local_dofs):
+                            if is_free_dof[i]:
+                                vv.real_part.impl.vec[i] = loc_value
+
+            V = self.range.zeros(len(U))
+            for v, vv in zip(V.to_numpy(), VV._list):
+                v[:] = vv.real_part.to_numpy()[self.restricted_range_dofs]
+            return V
+
+        def jacobian(self, U, mu=None):
+            assert U in self.source and len(U) == 1
+
+            UU = self.unrestricted_op.source.zeros()
+            self.unrestricted_op._set_mu(mu)
+
+            # This should also be localized instead
+            UU._list[0].real_part.to_numpy()[self.source_dofs] = np.ascontiguousarray(U.to_numpy()[0])
+            self.unrestricted_op.form.AssembleLinearization(UU._list[0].real_part.impl.vec)
+            rows, cols, vals = self.unrestricted_op.form.mat.COO()
+            mat = csr_matrix((vals, (rows, cols)))
+            re_mat = mat.toarray()[:, self.source_dofs][self.restricted_range_dofs, :]
+            res = NumpyMatrixOperator(re_mat)
+            return res
