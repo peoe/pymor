@@ -313,7 +313,6 @@ if config.HAVE_NGSOLVE:
                 uu.real_part.to_numpy()[self.source_dofs] = np.ascontiguousarray(u)
 
             VV =  self.unrestricted_op.range.zeros(len(U))
-            is_free_dof = self.unrestricted_op.range.V.FreeDofs()
             for patch in self.restricted_elements:
                 for element in patch:
                     local_dofs = element.dofs
@@ -321,19 +320,12 @@ if config.HAVE_NGSOLVE:
 
                     trafo = element.GetTrafo()
                     for uu, vv in zip(UU._list,VV._list):
-                        vv.real_part.impl.Set(self.unrestricted_op.dirichlet_bc, ngs.BND)
                         uu_vec = uu.real_part.impl.vec
                         uu_loc = ngs.Vector([uu_vec[dof] for dof in local_dofs])
-                        vv_loc = ngs.Vector([vv.real_part.impl.vec[dof] for dof in local_dofs])
-                        element_matrix = ngs.Matrix(len(local_dofs), len(local_dofs))
                         element_vector = ngs.Vector(len(local_dofs))
                         for integrator in self.unrestricted_op.form.integrators:
-                            element_matrix += integrator.CalcLinearizedElementMatrix(finite_elment, uu_loc, trafo)
                             element_vector += integrator.ApplyElementMatrix(finite_elment, uu_loc, trafo)
-                        vv_loc += element_matrix * element_vector
-                        for loc_value, i in zip(vv_loc, local_dofs):
-                            if is_free_dof[i]:
-                                vv.real_part.impl.vec[i] = loc_value
+                        vv.real_part.to_numpy()[local_dofs] = element_vector
 
             V = self.range.zeros(len(U))
             for v, vv in zip(V.to_numpy(), VV._list):
@@ -341,16 +333,28 @@ if config.HAVE_NGSOLVE:
             return V
 
         def jacobian(self, U, mu=None):
-            assert U in self.source and len(U) == 1
-
-            UU = self.unrestricted_op.source.zeros()
+            assert U in self.source
             self.unrestricted_op._set_mu(mu)
+            UU = self.unrestricted_op.source.zeros(len(U))
+            for uu, u in zip(UU._list, U.to_numpy()):
+                uu.real_part.to_numpy()[self.source_dofs] = np.ascontiguousarray(u)
+            matrix = np.zeros((self.unrestricted_op.source.dim, self.unrestricted_op.range.dim))
 
-            # This should also be localized instead
-            UU._list[0].real_part.to_numpy()[self.source_dofs] = np.ascontiguousarray(U.to_numpy()[0])
-            self.unrestricted_op.form.AssembleLinearization(UU._list[0].real_part.impl.vec)
-            rows, cols, vals = self.unrestricted_op.form.mat.COO()
-            mat = csr_matrix((vals, (rows, cols)))
-            re_mat = mat.toarray()[:, self.source_dofs][self.restricted_range_dofs, :]
-            res = NumpyMatrixOperator(re_mat)
-            return res
+            for patch in self.restricted_elements:
+                for element in patch:
+                    local_dofs = element.dofs
+                    finite_elment = self.unrestricted_op.source.V.GetFE(element)
+
+                    trafo = element.GetTrafo()
+                    for uu in UU._list:
+                        uu_vec = uu.real_part.impl.vec
+                        uu_loc = ngs.Vector([uu_vec[dof] for dof in local_dofs])
+                        element_matrix = ngs.Matrix(len(local_dofs), len(local_dofs))
+                        for integrator in self.unrestricted_op.form.integrators:
+                            element_matrix += integrator.CalcLinearizedElementMatrix(finite_elment, uu_loc, trafo)
+
+                        for ii, row in enumerate(element_matrix.NumPy()):
+                            for jj, val in enumerate(row):
+                                matrix[local_dofs[ii], local_dofs[jj]] = val
+            re_mat = matrix[:, self.source_dofs][self.restricted_range_dofs, :]
+            return NumpyMatrixOperator(re_mat)
