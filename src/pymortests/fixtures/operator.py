@@ -531,8 +531,8 @@ else:
 
 if config.HAVE_NGSOLVE:
     def ngsolve_nonlinear_operator_factory():
-        from ngsolve import (GridFunction, BND, Mesh, H1, CoefficientFunction, SymbolicBFI,
-                             BilinearForm, Preconditioner, grad,  sin, InnerProduct, dx, Parameter)
+        from ngsolve import (GridFunction, Mesh, H1, CoefficientFunction, SymbolicBFI,
+                             BilinearForm, grad,  sin, InnerProduct, Parameter)
         from ngsolve import x as x_expr, y as y_expr
         from netgen.geom2d import unit_square
         from pymor.bindings.ngsolve import NGSolveVectorSpace, NGSolveOperator, NGSolveMatrixOperator
@@ -560,7 +560,7 @@ if config.HAVE_NGSOLVE:
                              solver_options={'inverse': {'type': 'newton', 'rtol': 1e-6}})
 
         prod_form = BilinearForm(V)
-        prod_form += SymbolicBFI(InnerProduct(u,v))
+        prod_form += SymbolicBFI(InnerProduct(u, v))
         prod_form.Assemble()
 
         prod = NGSolveMatrixOperator(prod_form.mat, V, V)
