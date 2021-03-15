@@ -529,6 +529,52 @@ else:
     fenics_with_arrays_generators = []
 
 
+if config.HAVE_NGSOLVE:
+    def ngsolve_nonlinear_operator_factory():
+        from ngsolve import (GridFunction, BND, Mesh, H1, CoefficientFunction, SymbolicBFI,
+                             BilinearForm, Preconditioner, grad,  sin, InnerProduct, dx, Parameter)
+        from ngsolve import x as x_expr, y as y_expr
+        from netgen.geom2d import unit_square
+        from pymor.bindings.ngsolve import NGSolveVectorSpace, NGSolveOperator, NGSolveMatrixOperator
+
+        mesh = Mesh(unit_square.GenerateMesh(maxh=1/10))
+
+        V = H1(mesh, order=2, dirichlet="right")
+
+        g = CoefficientFunction(1.0)
+        c = Parameter(1.)
+
+        bc = GridFunction(V)
+        bc.Set(g, definedon=mesh.Boundaries("right"))
+
+        v = V.TestFunction()
+        u = V.TrialFunction()
+        f = x_expr * sin(y_expr)
+        F = BilinearForm(V, symmetric=False)
+        F += SymbolicBFI(InnerProduct((1 + c * u * u) * grad(u), grad(v)) - f * v)
+
+        space = NGSolveVectorSpace(V)
+        op = NGSolveOperator(F, space, space, u, dirichlet_bc=bc,
+                             parameter_setter=lambda mu: c.Set(mu['c'].item()),
+                             parameters={'c': 1},
+                             solver_options={'inverse': {'type': 'newton', 'rtol': 1e-6}})
+
+        prod_form = BilinearForm(V)
+        prod_form += SymbolicBFI(InnerProduct(u,v))
+        prod_form.Assemble()
+
+        prod = NGSolveMatrixOperator(prod_form.mat, V, V)
+        return op, op.parameters.parse(42), op.source.random(), op.range.random(), prod, prod
+
+    ngsolve_with_arrays_and_products_generators = [lambda: ngsolve_nonlinear_operator_factory()]
+    ngsolve_with_arrays_generators = [lambda: ngsolve_nonlinear_operator_factory()[:4]]
+
+else:
+
+    ngsolve_with_arrays_and_products_generators = []
+    ngsolve_with_arrays_generators = []
+
+
 @pytest.fixture(params=(
     thermalblock_operator_with_arrays_and_products_generators
     + thermalblock_assemble_operator_with_arrays_and_products_generators
@@ -543,6 +589,7 @@ else:
     + misc_operator_with_arrays_and_products_generators
     + unpicklable_misc_operator_with_arrays_and_products_generators
     + fenics_with_arrays_and_products_generators
+    + ngsolve_with_arrays_and_products_generators
 ))
 def operator_with_arrays_and_products(request):
     return request.param()
@@ -564,6 +611,7 @@ def operator_with_arrays_and_products(request):
     + misc_operator_with_arrays_generators
     + unpicklable_misc_operator_with_arrays_generators
     + fenics_with_arrays_generators
+    + ngsolve_with_arrays_generators
 ))
 def operator_with_arrays(request):
     return request.param()
