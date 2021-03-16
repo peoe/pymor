@@ -327,28 +327,32 @@ if config.HAVE_NGSOLVE:
             return V
 
         def jacobian(self, U, mu=None):
-            assert U in self.source
+            assert U in self.source and len(U) == 1
             self.unrestricted_op._set_mu(mu)
-            UU = self.unrestricted_op.source.zeros(len(U))
-            for uu, u in zip(UU._list, U.to_numpy()):
-                uu.real_part.to_numpy()[self.source_dofs] = np.ascontiguousarray(u)
+            UU = self.unrestricted_op.source.zeros()
+            UU._list[0].real_part.to_numpy()[self.source_dofs] = np.ascontiguousarray(U.to_numpy()[0])
             matrix = np.zeros((self.unrestricted_op.source.dim, self.unrestricted_op.range.dim))
 
+            visited = []
             for patch in self.restricted_elements:
                 for element in patch:
+                    if element in visited:
+                        continue
+                    visited.append(element)
                     local_dofs = element.dofs
                     finite_elment = self.unrestricted_op.source.V.GetFE(element)
 
                     trafo = element.GetTrafo()
-                    for uu in UU._list:
-                        uu_vec = uu.real_part.impl.vec
-                        uu_loc = ngs.Vector([uu_vec[dof] for dof in local_dofs])
-                        element_matrix = ngs.Matrix(len(local_dofs), len(local_dofs))
-                        for integrator in self.unrestricted_op.form.integrators:
-                            element_matrix += integrator.CalcLinearizedElementMatrix(finite_elment, uu_loc, trafo)
 
-                        for ii, row in enumerate(element_matrix.NumPy()):
-                            for jj, val in enumerate(row):
-                                matrix[local_dofs[ii], local_dofs[jj]] = val
+                    uu_vec = UU._list[0].real_part.impl.vec
+                    uu_loc = ngs.Vector([uu_vec[dof] for dof in local_dofs])
+                    element_matrix = ngs.Matrix(len(local_dofs), len(local_dofs))
+                    element_matrix *= 0
+                    for integrator in self.unrestricted_op.form.integrators:
+                        element_matrix += integrator.CalcLinearizedElementMatrix(finite_elment, uu_loc, trafo)
+
+                    for ii, row in enumerate(element_matrix.NumPy()):
+                        for jj, val in enumerate(row):
+                            matrix[local_dofs[ii], local_dofs[jj]] += val
             re_mat = matrix[:, self.source_dofs][self.restricted_range_dofs, :]
             return NumpyMatrixOperator(re_mat)
