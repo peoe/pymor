@@ -221,7 +221,6 @@ if config.HAVE_NGSOLVE:
             self._null += 0 * form.space.TestFunction() * ngs.dx
             self._null.Assemble()
 
-
         def _set_mu(self, mu=None):
             assert self.parameters.assert_compatible(mu)
             if self.parameter_setter:
@@ -235,7 +234,7 @@ if config.HAVE_NGSOLVE:
                 if u.imag_part is not None:
                     raise NotImplementedError
                 r = self.range.zero_vector()
-                r.real_part.impl.vec.data = self.dirichlet_bc.vec
+                # r.real_part.impl.vec.data = self.dirichlet_bc.vec
                 # not clear if this touches only freedofs
                 self.form.Apply(u.real_part.impl.vec, r.real_part.impl.vec)
                 R.append(r)
@@ -295,15 +294,6 @@ if config.HAVE_NGSOLVE:
             self.__auto_init(locals())
             self.source = NumpyVectorSpace(len(source_dofs))
             self.range = NumpyVectorSpace(len(restricted_range_dofs))
-
-            def _make_restricted_space(V, restricted_dofs):
-                mask = ngs.BitArray([b in restricted_dofs for b in range(V.ndof)])
-                restricted_space = ngs.Compress(V, mask)
-                assert restricted_space.ndof == len(restricted_dofs)
-                return NGSolveVectorSpace(restricted_space)
-            # not actually used atm
-            self.restricted_source_space = _make_restricted_space(unrestricted_op.source.V, source_dofs)
-            self.restricted_range_space = _make_restricted_space(unrestricted_op.range.V, restricted_range_dofs)
 
         def apply(self, U, mu=None):
             assert U in self.source
