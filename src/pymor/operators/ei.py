@@ -126,7 +126,7 @@ class EmpiricalInterpolatedOperator(Operator):
             else:
                 return ZeroOperator(self.range, self.source, name=self.name + '_jacobian')
         elif hasattr(self, 'operator'):
-            return EmpiricalInterpolatedOperator(self.operator.jacobian(U, mu=mu), self.interpolation_dofs,
+            return EmpiricalInterpolatedJacobianOperator(self.operator.jacobian(U, mu=mu), self.interpolation_dofs,
                                                  self.collateral_basis, self.triangular,
                                                  solver_options=options, name=self.name + '_jacobian')
         else:
@@ -154,6 +154,17 @@ class EmpiricalInterpolatedOperator(Operator):
         d = self.__dict__.copy()
         del d['_operator']
         return d
+
+
+class EmpiricalInterpolatedJacobianOperator(EmpiricalInterpolatedOperator):
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    # def apply_adjoint(self, V, mu=None):
+    #
+    #     return self.operator.apply_adjoint(V, mu=mu)
+
 
 
 class ProjectedEmpiciralInterpolatedOperator(Operator):

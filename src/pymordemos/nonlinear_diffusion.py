@@ -29,11 +29,11 @@ def main(
     else:
         raise NotImplementedError()
 
-    fom.visualize(fom.solve(0.5), filename=f'{model}_fom_0,5')
-
     parameter_space = fom.parameters.space((0, 1000.))
 
     # ### ROM generation (POD/DEIM)
+    import numpy as np
+
     from pymor.algorithms.ei import ei_greedy
     from pymor.algorithms.newton import newton
     from pymor.algorithms.pod import pod
@@ -42,14 +42,13 @@ def main(
 
     U = fom.solution_space.empty()
     residuals = fom.solution_space.empty()
-    for mu in parameter_space.sample_uniformly(10):
+    for ii, mu in enumerate(parameter_space.sample_uniformly(10)):
         UU, data = newton(fom.operator, fom.rhs.as_vector(), mu=mu, rtol=1e-6, return_residuals=True)
         U.append(UU)
         residuals.append(data['residuals'])
 
     dofs, cb, _ = ei_greedy(residuals, rtol=1e-7)
     ei_op = EmpiricalInterpolatedOperator(fom.operator, collateral_basis=cb, interpolation_dofs=dofs, triangular=True)
-
     rb, svals = pod(U, rtol=1e-7)
     fom_ei = fom.with_(operator=ei_op)
     reductor = StationaryRBReductor(fom_ei, rb)
@@ -59,7 +58,7 @@ def main(
 
     # ### ROM validation
     import time
-    import numpy as np
+
 
     # ensure that FFC is not called during runtime measurements
     rom.solve(1)
@@ -70,13 +69,12 @@ def main(
         tic = time.perf_counter()
         U = fom.solve(mu)
         t_fom = time.perf_counter() - tic
-
         tic = time.perf_counter()
         u_red = rom.solve(mu)
         t_rom = time.perf_counter() - tic
-
         U_red = reductor.reconstruct(u_red)
-        errs.append(((U - U_red).norm() / U.norm())[0])
+        abs_err = (U - U_red).norm()
+        errs.append((abs_err / U.norm())[0])
         speedups.append(t_fom / t_rom)
     print(f'Maximum relative ROM error: {max(errs)}')
     print(f'Median of ROM speedup: {np.median(speedups)}')
@@ -136,7 +134,8 @@ def discretize_fenics(dim, n, order):
 def discretize_ngsolve(dim, n, order):
     # ### problem definition
     from ngsolve import (GridFunction, BND, Mesh, H1, CoefficientFunction, LinearForm,SymbolicBFI,
-                         BilinearForm, Preconditioner, grad, solvers, sin, InnerProduct, dx, Parameter)
+                         VTKOutput,
+                         BilinearForm, Preconditioner, grad, solvers, sin, InnerProduct, dx, ds, Parameter)
     from ngsolve import x as x_expr, y as y_expr
     from netgen.csg import unit_cube
     from netgen.geom2d import unit_square
@@ -152,7 +151,6 @@ def discretize_ngsolve(dim, n, order):
 
     g = CoefficientFunction(1.0)
     c = Parameter(1.)
-
     bc = GridFunction(V)
     bc.Set(g, definedon=mesh.Boundaries("right"))
 
@@ -161,7 +159,8 @@ def discretize_ngsolve(dim, n, order):
     f = x_expr*sin(y_expr)
     F = BilinearForm(V, symmetric=False)
     F += SymbolicBFI(InnerProduct((1 + c*u*u)*grad(u), grad(v)) - f*v)
-
+    penalty = n*n*n
+    F += penalty*(u-g)*v*ds("right")
 
     # ### pyMOR wrapping
     from pymor.bindings.ngsolve import NGSolveVectorSpace, NGSolveOperator, NGSolveVisualizer
@@ -169,7 +168,7 @@ def discretize_ngsolve(dim, n, order):
     from pymor.operators.constructions import VectorOperator
 
     space = NGSolveVectorSpace(V)
-    op = NGSolveOperator(F, space, space, u, dirichlet_bc=bc,
+    op = NGSolveOperator(F, space, space, dirichlet_bc=bc,
                         parameter_setter=lambda mu: c.Set(mu['c'].item()),
                         parameters={'c': 1},
                         solver_options={'inverse': {'type': 'newton', 'rtol': 1e-6}})
@@ -177,7 +176,6 @@ def discretize_ngsolve(dim, n, order):
 
     fom = StationaryModel(op, rhs,
                           visualizer=NGSolveVisualizer(mesh, V))
-
     return fom
 
 

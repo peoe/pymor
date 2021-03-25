@@ -554,7 +554,7 @@ if config.HAVE_NGSOLVE:
         F += SymbolicBFI(InnerProduct((1 + c * u * u) * grad(u), grad(v)) - f * v)
 
         space = NGSolveVectorSpace(V)
-        op = NGSolveOperator(F, space, space, u, dirichlet_bc=bc,
+        op = NGSolveOperator(F, space, space, dirichlet_bc=bc,
                              parameter_setter=lambda mu: c.Set(mu['c'].item()),
                              parameters={'c': 1},
                              solver_options={'inverse': {'type': 'newton', 'rtol': 1e-6}})

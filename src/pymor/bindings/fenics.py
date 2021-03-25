@@ -3,7 +3,7 @@
 # License: BSD 2-Clause License (http://opensource.org/licenses/BSD-2-Clause)
 
 from pymor.core.config import config
-
+from pymor.tools.floatcmp import float_cmp
 
 if config.HAVE_FENICS:
     import dolfin as df
@@ -258,6 +258,9 @@ if config.HAVE_FENICS:
                 bc.apply(matrix)
             return FenicsMatrixOperator(matrix, self.source.V, self.range.V)
 
+        def check_bc_conform(self, U, fail=False):
+            pass
+
         def restricted(self, dofs):
             from pymor.tools.mpi import parallel
             if parallel:
@@ -406,7 +409,8 @@ if config.HAVE_FENICS:
             UU = self.op.source.zeros()
             UU._list[0].real_part.impl[:] = np.ascontiguousarray(U.to_numpy()[0])
             JJ = self.op.jacobian(UU, mu=mu)
-            return NumpyMatrixOperator(JJ.matrix.array()[self.restricted_range_dofs, :])
+            rmat = JJ.matrix.array()[self.restricted_range_dofs, :]
+            return NumpyMatrixOperator(rmat)
 
     @defaults('solver', 'preconditioner')
     def _solver_options(solver='mumps' if 'mumps' in df.linear_solver_methods() else 'default',

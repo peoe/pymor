@@ -2,12 +2,15 @@
 # Copyright 2013-2020 pyMOR developers and contributors. All rights reserved.
 # License: BSD 2-Clause License (http://opensource.org/licenses/BSD-2-Clause)
 from pathlib import Path
+from copy import copy
+
 
 from pymor.core.config import config
 from pymor.core.defaults import defaults
 from pymor.tools.io import change_to_directory
 from pymor.operators.interface import Operator
 from pymor.operators.numpy import NumpyMatrixOperator
+from pymor.tools.floatcmp import float_cmp
 
 if config.HAVE_NGSOLVE:
     import ngsolve as ngs
@@ -203,6 +206,21 @@ if config.HAVE_NGSOLVE:
                 for u, name in zip(U, legend):
                     ngs.Draw(u._list[0].real_part.impl, self.mesh, name=name)
 
+    def _check_dc_conform(vecarray, bc, fail=False):
+        for u in vecarray._list:
+            _check_dc_conform_single(u.real_part, bc, V=vecarray.space.V, fail=fail)
+
+    def _check_dc_conform_single(u, bc, V, fail=False):
+        vec = u.impl.vec
+        for ii, free in enumerate(V.FreeDofs()):
+            if free:
+                continue
+            v = vec[ii]
+            b = bc[ii]
+            if not float_cmp(v, b, rtol=1e-12, atol=1e-12):
+                if fail:
+                    assert False
+                vec[ii] = b
 
     class NGSolveOperator(Operator):
         """Wraps a general NGSolve Bilinear form as an |Operator|."""
@@ -210,16 +228,16 @@ if config.HAVE_NGSOLVE:
         linear = False
         parametric = True
 
-        def __init__(self, form, source_space, range_space, source_function, dirichlet_bc=None,
+        def __init__(self, form, source_space, range_space, dirichlet_bc, boundary_penalty=None,
                      parameter_setter=None, parameters={}, solver_options=None, name=None):
             self.__auto_init(locals())
             self.source = source_space
             self.range = range_space
             self.parameters_own = parameters
 
-            self._null = ngs.LinearForm(form.space)
-            self._null += 0 * form.space.TestFunction() * ngs.dx
-            self._null.Assemble()
+        def check_bc_conform(self, vecarray, fail=False):
+            return _check_dc_conform(vecarray, self.dirichlet_bc.vec, fail)
+
 
         def _set_mu(self, mu=None):
             assert self.parameters.assert_compatible(mu)
@@ -234,9 +252,11 @@ if config.HAVE_NGSOLVE:
                 if u.imag_part is not None:
                     raise NotImplementedError
                 r = self.range.zero_vector()
-                # r.real_part.impl.vec.data = self.dirichlet_bc.vec
-                # not clear if this touches only freedofs
                 self.form.Apply(u.real_part.impl.vec, r.real_part.impl.vec)
+
+                for ii in range(len(r.real_part.impl.vec)):
+                    if not self.range.V.FreeDofs()[ii]:
+                        r.real_part.impl.vec.data[ii] = 0
                 R.append(r)
             return self.range.make_array(R)
 
@@ -266,7 +286,8 @@ if config.HAVE_NGSOLVE:
                 if element.elementnode in affected_element_nodes:
                     source_dofs.update(element.dofs)
             source_dofs = np.array(sorted(source_dofs), dtype=np.intc)
-            return RestrictedNGSolveOperator(self, source_dofs, restrict_to_dofs, re_elements), source_dofs
+            return RestrictedNGSolveOperator(copy(self), source_dofs, restrict_to_dofs,
+                                             re_elements), source_dofs
 
         def apply_inverse(self, V, mu=None, initial_guess=None, least_squares=False):
             if least_squares or len(V) > 1:
@@ -274,15 +295,17 @@ if config.HAVE_NGSOLVE:
             self._set_mu(mu)
 
             result = ngs.GridFunction(self.range.V)
-            result.vec.data = self.dirichlet_bc.vec
+            if initial_guess:
+                result.vec.data = initial_guess._list[0].real_part.impl.vec
+                assert(False)
+            else:
+                result.vec.data = self.dirichlet_bc.vec
 
-            c = ngs.Preconditioner(self.form, "local")  # <- Jacobi preconditioner
-            # c = Preconditioner(a,"direct") #<- sparse direct solver
-            c.Update()
-            ngs.solvers.BVP(bf=self.form, lf=self._null, gf=result, pre=c)
-
+            ngs.solvers.Newton(a=self.form, u=result, dirichletvalues=self.dirichlet_bc.vec)
             rr = self.range.zeros(len(V))
+
             rr._list[0].real_part.impl.vec.data = result.vec
+            _check_dc_conform(rr, bc=self.dirichlet_bc.vec, fail=True)
             return rr
 
 
@@ -294,15 +317,19 @@ if config.HAVE_NGSOLVE:
             self.__auto_init(locals())
             self.source = NumpyVectorSpace(len(source_dofs))
             self.range = NumpyVectorSpace(len(restricted_range_dofs))
+            self.free_dofs = [free for ii, free in
+                              enumerate(self.unrestricted_op.range.V.FreeDofs()) if ii in restricted_range_dofs]
 
         def apply(self, U, mu=None):
             assert U in self.source
             self.unrestricted_op._set_mu(mu)
+
             UU = self.unrestricted_op.source.zeros(len(U))
             for uu, u in zip(UU._list, U.to_numpy()):
                 uu.real_part.to_numpy()[self.source_dofs] = np.ascontiguousarray(u)
 
             VV = self.unrestricted_op.range.zeros(len(U))
+
             visited = []
             for patch in self.restricted_elements:
                 for element in patch:
@@ -323,7 +350,8 @@ if config.HAVE_NGSOLVE:
 
             V = self.range.zeros(len(U))
             for v, vv in zip(V.to_numpy(), VV._list):
-                v[:] = vv.real_part.to_numpy()[self.restricted_range_dofs]
+                vv_np = vv.real_part.to_numpy()
+                v[:] = vv_np[self.restricted_range_dofs]
             return V
 
         def jacobian(self, U, mu=None):
@@ -354,5 +382,6 @@ if config.HAVE_NGSOLVE:
                     for ii, row in enumerate(element_matrix.NumPy()):
                         for jj, val in enumerate(row):
                             matrix[local_dofs[ii], local_dofs[jj]] += val
+
             re_mat = matrix[:, self.source_dofs][self.restricted_range_dofs, :]
             return NumpyMatrixOperator(re_mat)
