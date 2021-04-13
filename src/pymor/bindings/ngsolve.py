@@ -234,6 +234,7 @@ if config.HAVE_NGSOLVE:
             self.source = source_space
             self.range = range_space
             self.parameters_own = parameters
+            self.unfree = np.array([not b for b in self.range.V.FreeDofs()])
 
         def check_bc_conform(self, vecarray, fail=False):
             return _check_dc_conform(vecarray, self.dirichlet_bc.vec, fail)
@@ -248,15 +249,13 @@ if config.HAVE_NGSOLVE:
             assert U in self.source
             self._set_mu(mu)
             R = []
+
             for u in U._list:
                 if u.imag_part is not None:
                     raise NotImplementedError
                 r = self.range.zero_vector()
                 self.form.Apply(u.real_part.impl.vec, r.real_part.impl.vec)
-
-                for ii in range(len(r.real_part.impl.vec)):
-                    if not self.range.V.FreeDofs()[ii]:
-                        r.real_part.impl.vec.data[ii] = 0
+                np.putmask(r.real_part.impl.vec.FV().NumPy(), self.unfree, 0)
                 R.append(r)
             return self.range.make_array(R)
 
@@ -273,13 +272,12 @@ if config.HAVE_NGSOLVE:
             return NGSolveMatrixOperator(copy, self.range, self.source)
 
         def restricted(self, restrict_to_dofs):
-            restricted_list = list(restrict_to_dofs)
-            re_elements = [[] for _ in restrict_to_dofs]
+            re_elements = set()
             affected_element_nodes = set()
             for element in self.range.V.Elements():
                 for element_dof in element.dofs:
                     if element_dof in restrict_to_dofs:
-                        re_elements[restricted_list.index(element_dof)].append(element)
+                        re_elements.add(element)
                         affected_element_nodes.add(element.elementnode)
             source_dofs = set()
             for element in self.source.V.Elements():
@@ -331,23 +329,18 @@ if config.HAVE_NGSOLVE:
 
             VV = self.unrestricted_op.range.zeros(len(U))
 
-            visited = []
-            for patch in self.restricted_elements:
-                for element in patch:
-                    if element in visited:
-                        continue
-                    visited.append(element)
-                    local_dofs = element.dofs
-                    finite_elment = self.unrestricted_op.source.V.GetFE(element)
+            for element in self.restricted_elements:
+                local_dofs = element.dofs
+                finite_elment = self.unrestricted_op.source.V.GetFE(element)
 
-                    trafo = element.GetTrafo()
-                    for uu, vv in zip(UU._list,VV._list):
-                        uu_vec = uu.real_part.impl.vec
-                        uu_loc = ngs.Vector([uu_vec[dof] for dof in local_dofs])
-                        element_vector = ngs.Vector([0 for _ in range(len(local_dofs))])
-                        for integrator in self.unrestricted_op.form.integrators:
-                            element_vector += integrator.ApplyElementMatrix(finite_elment, uu_loc, trafo)
-                        vv.real_part.to_numpy()[local_dofs] += element_vector
+                trafo = element.GetTrafo()
+                for uu, vv in zip(UU._list,VV._list):
+                    uu_vec = uu.real_part.impl.vec
+                    uu_loc = ngs.Vector([uu_vec[dof] for dof in local_dofs])
+                    element_vector = ngs.Vector([0 for _ in range(len(local_dofs))])
+                    for integrator in self.unrestricted_op.form.integrators:
+                        element_vector += integrator.ApplyElementMatrix(finite_elment, uu_loc, trafo)
+                    vv.real_part.to_numpy()[local_dofs] += element_vector
 
             V = self.range.zeros(len(U))
             for v, vv in zip(V.to_numpy(), VV._list):
@@ -362,27 +355,22 @@ if config.HAVE_NGSOLVE:
             UU._list[0].real_part.to_numpy()[self.source_dofs] = np.ascontiguousarray(U.to_numpy()[0])
             matrix = np.zeros((self.unrestricted_op.source.dim, self.unrestricted_op.range.dim))
 
-            visited = []
-            for patch in self.restricted_elements:
-                for element in patch:
-                    if element in visited:
-                        continue
-                    visited.append(element)
-                    local_dofs = element.dofs
-                    finite_elment = self.unrestricted_op.source.V.GetFE(element)
+            for element in self.restricted_elements:
+                local_dofs = element.dofs
+                finite_elment = self.unrestricted_op.source.V.GetFE(element)
 
-                    trafo = element.GetTrafo()
+                trafo = element.GetTrafo()
 
-                    uu_vec = UU._list[0].real_part.impl.vec
-                    uu_loc = ngs.Vector([uu_vec[dof] for dof in local_dofs])
-                    element_matrix = ngs.Matrix(len(local_dofs), len(local_dofs))
-                    element_matrix *= 0
-                    for integrator in self.unrestricted_op.form.integrators:
-                        element_matrix += integrator.CalcLinearizedElementMatrix(finite_elment, uu_loc, trafo)
+                uu_vec = UU._list[0].real_part.impl.vec
+                uu_loc = ngs.Vector([uu_vec[dof] for dof in local_dofs])
+                element_matrix = ngs.Matrix(len(local_dofs), len(local_dofs))
+                element_matrix *= 0
+                for integrator in self.unrestricted_op.form.integrators:
+                    element_matrix += integrator.CalcLinearizedElementMatrix(finite_elment, uu_loc, trafo)
 
-                    for ii, row in enumerate(element_matrix.NumPy()):
-                        for jj, val in enumerate(row):
-                            matrix[local_dofs[ii], local_dofs[jj]] += val
+                for ii, row in enumerate(element_matrix.NumPy()):
+                    for jj, val in enumerate(row):
+                        matrix[local_dofs[ii], local_dofs[jj]] += val
 
             re_mat = matrix[:, self.source_dofs][self.restricted_range_dofs, :]
             return NumpyMatrixOperator(re_mat)
