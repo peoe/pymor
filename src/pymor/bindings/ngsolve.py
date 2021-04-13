@@ -289,24 +289,25 @@ if config.HAVE_NGSOLVE:
             return RestrictedNGSolveOperator(copy(self), source_dofs, restrict_to_dofs,
                                              re_elements), source_dofs
 
-        def apply_inverse(self, V, mu=None, initial_guess=None, least_squares=False):
-            if least_squares or len(V) > 1:
-                raise NotImplementedError
-            self._set_mu(mu)
-
-            result = ngs.GridFunction(self.range.V)
-            if initial_guess:
-                result.vec.data = initial_guess._list[0].real_part.impl.vec
-                assert(False)
-            else:
-                result.vec.data = self.dirichlet_bc.vec
-
-            ngs.solvers.Newton(a=self.form, u=result, dirichletvalues=self.dirichlet_bc.vec)
-            rr = self.range.zeros(len(V))
-
-            rr._list[0].real_part.impl.vec.data = result.vec
-            _check_dc_conform(rr, bc=self.dirichlet_bc.vec, fail=True)
-            return rr
+        # pyMOR's own newton performs much better in its default settings than this
+        # def apply_inverse(self, V, mu=None, initial_guess=None, least_squares=False):
+        #     if least_squares or len(V) > 1:
+        #         raise NotImplementedError
+        #     self._set_mu(mu)
+        #
+        #     result = ngs.GridFunction(self.range.V)
+        #     if initial_guess:
+        #         result.vec.data = initial_guess._list[0].real_part.impl.vec
+        #         assert(False)
+        #     else:
+        #         result.vec.data = self.dirichlet_bc.vec
+        #
+        #     ngs.solvers.Newton(a=self.form, u=result, dirichletvalues=self.dirichlet_bc.vec)
+        #     rr = self.range.zeros(len(V))
+        #
+        #     rr._list[0].real_part.impl.vec.data = result.vec
+        #     _check_dc_conform(rr, bc=self.dirichlet_bc.vec, fail=True)
+        #     return rr
 
 
     class RestrictedNGSolveOperator(Operator):
