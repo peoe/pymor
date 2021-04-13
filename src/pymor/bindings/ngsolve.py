@@ -239,7 +239,6 @@ if config.HAVE_NGSOLVE:
         def check_bc_conform(self, vecarray, fail=False):
             return _check_dc_conform(vecarray, self.dirichlet_bc.vec, fail)
 
-
         def _set_mu(self, mu=None):
             assert self.parameters.assert_compatible(mu)
             if self.parameter_setter:
@@ -316,8 +315,6 @@ if config.HAVE_NGSOLVE:
             self.__auto_init(locals())
             self.source = NumpyVectorSpace(len(source_dofs))
             self.range = NumpyVectorSpace(len(restricted_range_dofs))
-            self.free_dofs = [free for ii, free in
-                              enumerate(self.unrestricted_op.range.V.FreeDofs()) if ii in restricted_range_dofs]
 
         def apply(self, U, mu=None):
             assert U in self.source
