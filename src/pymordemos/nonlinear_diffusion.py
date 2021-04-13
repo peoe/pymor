@@ -165,7 +165,7 @@ def discretize_ngsolve(dim, n, order):
     f = x_expr*sin(y_expr)
     F = BilinearForm(V, symmetric=False)
     F += SymbolicBFI(InnerProduct((1 + c*u*u)*grad(u), grad(v)) - f*v)
-    penalty = n*n*n
+    penalty = n
     F += penalty*(u-g)*v*ds("right")
 
     # ### pyMOR wrapping
