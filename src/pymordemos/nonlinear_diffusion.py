@@ -4,6 +4,7 @@
 # License: BSD 2-Clause License (http://opensource.org/licenses/BSD-2-Clause)
 
 from typer import Argument, run
+import time
 
 from pymor.tools.typer import Choices
 
@@ -14,6 +15,7 @@ def main(
     order: int = Argument(..., help='Finite element order.'),
     model: Choices('fenics ngsolve') = Argument(..., help='High-dimensional model.'),
 ):
+    t_all = time.perf_counter()
     """Reduces a FEniCS/NgSolve-based nonlinear diffusion problem using POD/DEIM."""
     if model == 'fenics':
         from pymor.tools import mpi
@@ -57,11 +59,9 @@ def main(
     rom = rom.with_(operator=rom.operator.with_(solver_options=fom.operator.solver_options))
 
     # ### ROM validation
-    import time
-
-
     # ensure that FFC is not called during runtime measurements
     rom.solve(1)
+    t_after_ffc = time.perf_counter()
 
     errs = []
     speedups = []
@@ -76,8 +76,14 @@ def main(
         abs_err = (U - U_red).norm()
         errs.append((abs_err / U.norm())[0])
         speedups.append(t_fom / t_rom)
-    print(f'Maximum relative ROM error: {max(errs)}')
-    print(f'Median of ROM speedup: {np.median(speedups)}')
+    t_all = time.perf_counter() - t_all
+    t_after_ffc = time.perf_counter() - t_after_ffc
+    print(f'Maximum relative ROM error ({model}): {max(errs):e}')
+    print(f'Median relative ROM error ({model}):  {np.median(errs):e}')
+    print(f'Maximum of ROM speedup ({model}):     {max(speedups):e}')
+    print(f'Median of ROM speedup ({model}):      {np.median(speedups):e}')
+    print(f'Overall time ({model}):               {t_all:e}')
+    print(f'Time after first solve ({model}):     {t_after_ffc:e}')
 
     fom.visualize(U_red, filename=f'{model}_reconstructed_mu={mu["c"][0]}.pvd')
     fom.visualize(U, filename=f'{model}_full_mu={mu["c"][0]}.pvd')
