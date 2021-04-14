@@ -111,16 +111,12 @@ def newton(operator, rhs, initial_guess=None, mu=None, range_product=None, sourc
     if return_residuals:
         data['residuals'] = operator.range.empty()
 
-    try:
-        force_bc = operator.check_bc_conform
-    except AttributeError as ae:
-        logger.warning(ae)
-        def force_bc(U, fail=False):
-            pass
-
     U = initial_guess.copy()
-    force_bc(U)
-    del force_bc
+    try:
+        operator.set_dirichlet_boundary_values(U)
+    except AttributeError as ae:
+        logger.debug(f'not setting boundary values for {operator.name}')
+
     residual = rhs - operator.apply(U, mu=mu)
 
     # compute norms

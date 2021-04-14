@@ -258,7 +258,7 @@ if config.HAVE_FENICS:
                 bc.apply(matrix)
             return FenicsMatrixOperator(matrix, self.source.V, self.range.V)
 
-        def check_bc_conform(self, U, fail=False):
+        def set_dirichlet_boundary_values(self, U, fail=False):
             pass
 
         def restricted(self, dofs):

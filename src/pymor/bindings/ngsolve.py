@@ -10,7 +10,6 @@ from pymor.core.defaults import defaults
 from pymor.tools.io import change_to_directory
 from pymor.operators.interface import Operator
 from pymor.operators.numpy import NumpyMatrixOperator
-from pymor.tools.floatcmp import float_cmp
 
 if config.HAVE_NGSOLVE:
     import ngsolve as ngs
@@ -206,22 +205,6 @@ if config.HAVE_NGSOLVE:
                 for u, name in zip(U, legend):
                     ngs.Draw(u._list[0].real_part.impl, self.mesh, name=name)
 
-    def _check_dc_conform(vecarray, bc, fail=False):
-        for u in vecarray._list:
-            _check_dc_conform_single(u.real_part, bc, V=vecarray.space.V, fail=fail)
-
-    def _check_dc_conform_single(u, bc, V, fail=False):
-        vec = u.impl.vec
-        for ii, free in enumerate(V.FreeDofs()):
-            if free:
-                continue
-            v = vec[ii]
-            b = bc[ii]
-            if not float_cmp(v, b, rtol=1e-12, atol=1e-12):
-                if fail:
-                    assert False
-                vec[ii] = b
-
     class NGSolveOperator(Operator):
         """Wraps a general NGSolve Bilinear form as an |Operator|."""
 
@@ -236,8 +219,9 @@ if config.HAVE_NGSOLVE:
             self.parameters_own = parameters
             self.unfree = np.array([not b for b in self.range.V.FreeDofs()])
 
-        def check_bc_conform(self, vecarray, fail=False):
-            return _check_dc_conform(vecarray, self.dirichlet_bc.vec, fail)
+        def set_dirichlet_boundary_values(self, vecarray):
+            for u in vecarray._list:
+                np.putmask(u.real_part.impl.vec.FV().NumPy(), self.unfree, self.dirichlet_bc.vec)
 
         def _set_mu(self, mu=None):
             assert self.parameters.assert_compatible(mu)
@@ -303,7 +287,7 @@ if config.HAVE_NGSOLVE:
         #     rr = self.range.zeros(len(V))
         #
         #     rr._list[0].real_part.impl.vec.data = result.vec
-        #     _check_dc_conform(rr, bc=self.dirichlet_bc.vec, fail=True)
+        #     self.set_dirichlet_boundary_values(rr)
         #     return rr
 
 
