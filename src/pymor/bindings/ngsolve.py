@@ -328,10 +328,8 @@ if config.HAVE_NGSOLVE:
                 for uu, vv in zip(UU._list,VV._list):
                     uu_vec = uu.real_part.impl.vec
                     uu_loc = ngs.Vector([uu_vec[dof] for dof in local_dofs])
-                    element_vector = ngs.Vector([0 for _ in range(len(local_dofs))])
                     for integrator in self.unrestricted_op.form.integrators:
-                        element_vector += integrator.ApplyElementMatrix(finite_elment, uu_loc, trafo)
-                    vv.real_part.to_numpy()[local_dofs] += element_vector
+                        vv.real_part.to_numpy()[local_dofs] += integrator.ApplyElementMatrix(finite_elment, uu_loc, trafo)
 
             V = self.range.zeros(len(U))
             for v, vv in zip(V.to_numpy(), VV._list):
