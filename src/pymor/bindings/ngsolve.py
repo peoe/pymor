@@ -299,6 +299,16 @@ if config.HAVE_NGSOLVE:
             self.__auto_init(locals())
             self.source = NumpyVectorSpace(len(source_dofs))
             self.range = NumpyVectorSpace(len(restricted_range_dofs))
+            self.source_dof_inv_map, c = [-1]*unrestricted_op.source.dim, 0
+            for ii in range(self.unrestricted_op.source.dim):
+                if ii in source_dofs:
+                    self.source_dof_inv_map[ii] = c
+                    c += 1
+            self.range_dof_inv_map, c = [-1]*unrestricted_op.range.dim, 0
+            for ii in range(self.unrestricted_op.range.dim):
+                if ii in restricted_range_dofs:
+                    self.range_dof_inv_map[ii] = c
+                    c += 1
 
         def apply(self, U, mu=None):
             assert U in self.source
