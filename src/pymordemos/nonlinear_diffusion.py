@@ -84,6 +84,9 @@ def main(
     print(f'Median of ROM speedup ({model}):      {np.median(speedups):e}')
     print(f'Overall time ({model}):               {t_all:e}')
     print(f'Time after first solve ({model}):     {t_after_ffc:e}')
+    print(f'POD mode count ({model}): {len(rb)}')
+    print(f'IDOF count ({model}):     {len(dofs)}')
+    print(f'IDOFs({model}): {dofs}')
 
     fom.visualize(U_red, filename=f'{model}_reconstructed_mu={mu["c"][0]}.pvd')
     fom.visualize(U, filename=f'{model}_full_mu={mu["c"][0]}.pvd')
