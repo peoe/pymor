@@ -48,6 +48,9 @@ def main(
         UU, data = newton(fom.operator, fom.rhs.as_vector(), mu=mu, rtol=1e-6, return_residuals=True)
         U.append(UU)
         fom.visualize(UU, filename=f'{model}_full_mu={mu["c"][0]}.pvd')
+        uu_res = fom.operator.apply(UU, mu)
+        fom.visualize(uu_res, filename=f'{model}_res_full_mu={mu["c"][0]}.pvd')
+        assert uu_res.norm() < 1e-7
         residuals.append(data['residuals'])
 
     dofs, cb, _ = ei_greedy(residuals, rtol=1e-7)
@@ -77,6 +80,10 @@ def main(
         abs_err = (U - U_red).norm()
         errs.append((abs_err / U.norm())[0])
         speedups.append(t_fom / t_rom)
+        fom.visualize(U_red, filename=f'{model}_rom_mu={mu["c"][0]}.pvd')
+        u_res = rom.operator.apply(u_red, mu)
+        fom.visualize(reductor.reconstruct(u_res), filename=f'{model}_res_rom_mu={mu["c"][0]}.pvd')
+        assert u_res.norm() < 1e-7
     t_all = time.perf_counter() - t_all
     t_after_ffc = time.perf_counter() - t_after_ffc
     print(f'Maximum relative ROM error ({model}): {max(errs):e}')
