@@ -47,6 +47,7 @@ def main(
     for ii, mu in enumerate(parameter_space.sample_uniformly(10)):
         UU, data = newton(fom.operator, fom.rhs.as_vector(), mu=mu, rtol=1e-6, return_residuals=True)
         U.append(UU)
+        fom.visualize(UU, filename=f'{model}_full_mu={mu["c"][0]}.pvd')
         residuals.append(data['residuals'])
 
     dofs, cb, _ = ei_greedy(residuals, rtol=1e-7)
@@ -156,7 +157,8 @@ def discretize_ngsolve(dim, n, order):
     else:
         raise NotImplementedError
 
-    V = H1(mesh, order=order, dirichlet="right")
+    # V = H1(mesh, order=order, dirichlet='right|left|top|bottom')
+    V = H1(mesh, order=order, dirichlet='right')
 
     g = CoefficientFunction(1.0)
     c = Parameter(1.)
@@ -167,9 +169,10 @@ def discretize_ngsolve(dim, n, order):
     u = V.TrialFunction()
     f = x_expr*sin(y_expr)
     F = BilinearForm(V, symmetric=False)
-    F += SymbolicBFI(InnerProduct((1 + c*u*u)*grad(u), grad(v)) - f*v)
-    penalty = n
-    F += penalty*(u-g)*v*ds("right")
+    us = u+bc
+    F += SymbolicBFI(InnerProduct((1 + c*us*us)*(grad(bc)+grad(u)), grad(v)) - f*v)
+    #penalty = n
+    #F += penalty*(u-g)*v*ds("right")
 
     # ### pyMOR wrapping
     from pymor.bindings.ngsolve import NGSolveVectorSpace, NGSolveOperator, NGSolveVisualizer

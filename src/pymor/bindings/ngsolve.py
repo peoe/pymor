@@ -237,8 +237,12 @@ if config.HAVE_NGSOLVE:
                 if u.imag_part is not None:
                     raise NotImplementedError
                 r = self.range.zero_vector()
-                self.form.Apply(u.real_part.impl.vec, r.real_part.impl.vec)
-                np.putmask(r.real_part.impl.vec.FV().NumPy(), self.unfree, 0)
+                ug = self.range.zero_vector()
+                ug.real_part.impl.vec.data = u.real_part.impl.vec
+                ug.real_part.impl.vec.data -= self.dirichlet_bc.vec
+                self.form.Apply(ug.real_part.impl.vec, r.real_part.impl.vec)
+                # np.putmask(r.real_part.impl.vec.FV().NumPy(), self.unfree, 0)
+                # r.real_part.impl.vec.data += self.dirichlet_bc.vec
                 R.append(r)
             return self.range.make_array(R)
 
@@ -270,25 +274,25 @@ if config.HAVE_NGSOLVE:
             return RestrictedNGSolveOperator(copy(self), source_dofs, restrict_to_dofs,
                                              re_elements), source_dofs
 
-        # pyMOR's own newton performs much better in its default settings than this
-        # def apply_inverse(self, V, mu=None, initial_guess=None, least_squares=False):
-        #     if least_squares or len(V) > 1:
-        #         raise NotImplementedError
-        #     self._set_mu(mu)
-        #
-        #     result = ngs.GridFunction(self.range.V)
-        #     if initial_guess:
-        #         result.vec.data = initial_guess._list[0].real_part.impl.vec
-        #         assert(False)
-        #     else:
-        #         result.vec.data = self.dirichlet_bc.vec
-        #
-        #     ngs.solvers.Newton(a=self.form, u=result, dirichletvalues=self.dirichlet_bc.vec)
-        #     rr = self.range.zeros(len(V))
-        #
-        #     rr._list[0].real_part.impl.vec.data = result.vec
-        #     self.set_dirichlet_boundary_values(rr)
-        #     return rr
+        #pyMOR's own newton performs much better in its default settings than this
+        def apply_inverse(self, V, mu=None, initial_guess=None, least_squares=False):
+            if least_squares or len(V) > 1:
+                raise NotImplementedError
+            self._set_mu(mu)
+
+            result = ngs.GridFunction(self.range.V)
+            if initial_guess:
+                result.vec.data = initial_guess._list[0].real_part.impl.vec
+                assert(False)
+            else:
+                result.vec.data = self.dirichlet_bc.vec
+
+            ngs.solvers.Newton(a=self.form, u=result, dirichletvalues=self.dirichlet_bc.vec)
+            rr = self.range.zeros(len(V))
+
+            rr._list[0].real_part.impl.vec.data = result.vec + self.dirichlet_bc.vec
+
+            return rr
 
 
     class RestrictedNGSolveOperator(Operator):
