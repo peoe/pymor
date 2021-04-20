@@ -10,7 +10,10 @@ from contextlib import contextmanager
 import shutil
 from pathlib import Path
 
+from pymor.core.base import ImmutableObject
 from pymor.core.logger import getLogger
+from pymor.operators.interface import Operator
+from pymor.vectorarrays.interface import VectorArray
 
 
 def _loadmat(path, key=None):
@@ -143,3 +146,22 @@ def change_to_directory(name):
         yield os.chdir(name)
     finally:
         os.chdir(old_cwd)
+
+
+class ShiftedVisualizer(ImmutableObject):
+    """Wrap a given visualizer with a pre-visualization shift vector"""
+
+    def __init__(self, original_visualizer, shift):
+        assert isinstance(Operator, shift)
+        self.__auto_init(locals())
+
+    def visualize(self, U, *args, **kwargs):
+        """Apply shift and visualize the provided data."""
+        if isinstance(U, VectorArray):
+            U = (U,)
+        shifted = [self.shift.apply(u) for u in U]
+
+        self.original_visualizer.visualize(shifted, *args, **kwargs)
+        if 'filename' in kwargs:
+            fn = kwargs.pop('filename')
+            self.original_visualizer.visualize(U, *args, filename=f'notshifted_{fn}', **kwargs)
