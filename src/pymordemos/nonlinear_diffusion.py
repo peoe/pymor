@@ -6,6 +6,7 @@
 from typer import Argument, run
 import time
 
+from pymor.tools.io import ShiftedVisualizer
 from pymor.tools.typer import Choices
 
 
@@ -81,6 +82,7 @@ def main(
         errs.append((abs_err / U.norm())[0])
         speedups.append(t_fom / t_rom)
         fom.visualize(U_red, filename=f'{model}_rom_mu={mu["c"][0]}.pvd')
+        fom.visualize(U, filename=f'{model}_full_mu={mu["c"][0]}.pvd')
         u_res = rom.operator.apply(u_red, mu)
         fom.visualize(reductor.reconstruct(u_res), filename=f'{model}_res_rom_mu={mu["c"][0]}.pvd')
         assert u_res.norm() < 1e-7
@@ -125,7 +127,7 @@ def discretize_fenics(dim, n, order):
     u = df.Function(V)
     v = df.TestFunction(V)
     f = df.Expression("x[0]*sin(x[1])", degree=2)
-    F = df.inner((1 + c*u**2)*df.grad(u), df.grad(v))*df.dx - f*v*df.dx
+    F = df.inner((1 + (c*u)**2)*df.grad(u), df.grad(v))*df.dx - f*v*df.dx
 
     df.solve(F == 0, u, bc,
              solver_parameters={"newton_solver": {"relative_tolerance": 1e-6}})
@@ -176,8 +178,9 @@ def discretize_ngsolve(dim, n, order):
     u = V.TrialFunction()
     f = x_expr*sin(y_expr)
     F = BilinearForm(V, symmetric=False)
+    # us = bc-u
     us = u+bc
-    F += SymbolicBFI(InnerProduct((1 + c*us*us)*(grad(bc)+grad(u)), grad(v)) - f*v)
+    F += SymbolicBFI(InnerProduct((1 + c*us*us)*(grad(u)+grad(bc)), grad(v)) - f*v)
     #penalty = n
     #F += penalty*(u-g)*v*ds("right")
 
@@ -193,8 +196,15 @@ def discretize_ngsolve(dim, n, order):
                         solver_options={'inverse': {'type': 'newton', 'rtol': 1e-6}})
     rhs = VectorOperator(op.range.zeros())
 
+    shift = space.make_array((bc,))
+    # shift = space.zeros()
+    # F.Apply(bc.vec, shift._list[0].real_part.impl.vec)
+
+    og = NGSolveVisualizer(mesh, V)
+    vis = ShiftedVisualizer(og, -shift)
+    og.visualize(shift, m=None, filename='shift.vtk')
     fom = StationaryModel(op, rhs,
-                          visualizer=NGSolveVisualizer(mesh, V))
+                          visualizer=vis)
     return fom
 
 
