@@ -2,10 +2,11 @@
 # This file is part of the pyMOR project (http://www.pymor.org).
 # Copyright 2013-2020 pyMOR developers and contributors. All rights reserved.
 # License: BSD 2-Clause License (http://opensource.org/licenses/BSD-2-Clause)
-
+from pymor.core import cache
 from typer import Argument, run
 import time
 
+from pymor.operators.constructions import ConstantOperator, IdentityOperator
 from pymor.tools.io import ShiftedVisualizer
 from pymor.tools.typer import Choices
 
@@ -51,7 +52,8 @@ def main(
         fom.visualize(UU, filename=f'{model}_full_mu={mu["c"][0]}.pvd')
         uu_res = fom.operator.apply(UU, mu)
         fom.visualize(uu_res, filename=f'{model}_res_full_mu={mu["c"][0]}.pvd')
-        assert uu_res.norm() < 1e-7
+        nn = uu_res.norm()
+        assert nn < 1e-7, nn
         residuals.append(data['residuals'])
 
     dofs, cb, _ = ei_greedy(residuals, rtol=1e-7)
@@ -69,6 +71,7 @@ def main(
     t_after_ffc = time.perf_counter()
 
     errs = []
+    shifted_errs = []
     speedups = []
     for mu in parameter_space.sample_randomly(10):
         tic = time.perf_counter()
@@ -78,11 +81,24 @@ def main(
         u_red = rom.solve(mu)
         t_rom = time.perf_counter() - tic
         U_red = reductor.reconstruct(u_red)
+        U_shifted = fom.output_functional.apply(U)
+        U_red_shifted = fom.output_functional.apply(U_red)
         abs_err = (U - U_red).norm()
         errs.append((abs_err / U.norm())[0])
+        abs_err = (U_shifted - U_red_shifted).norm()
+        shifted_errs.append((abs_err / U_shifted.norm())[0])
         speedups.append(t_fom / t_rom)
+
         fom.visualize(U_red, filename=f'{model}_rom_mu={mu["c"][0]}.pvd')
         fom.visualize(U, filename=f'{model}_full_mu={mu["c"][0]}.pvd')
+        fom.visualize(U - U_red, filename=f'{model}_error_rom_full_mu={mu["c"][0]}.pvd')
+
+        fom.visualize(U_red_shifted, filename=f'shifted_{model}_rom_mu={mu["c"][0]}.pvd')
+        fom.visualize(U_shifted, filename=f'shifted_{model}_full_mu={mu["c"][0]}.pvd')
+        fom.visualize(U_shifted - U_red_shifted, filename=f'shifted_{model}_error_rom_full_mu={mu["c"][0]}.pvd')
+        U_res = fom.operator.apply(U, mu)
+        fom.visualize(U_res, filename=f'{model}_res_full_mu={mu["c"][0]}.pvd')
+        assert U_res.norm() < 1e-7, (mu, U_res.norm())
         u_res = rom.operator.apply(u_red, mu)
         fom.visualize(reductor.reconstruct(u_res), filename=f'{model}_res_rom_mu={mu["c"][0]}.pvd')
         assert u_res.norm() < 1e-7
@@ -90,6 +106,10 @@ def main(
     t_after_ffc = time.perf_counter() - t_after_ffc
     print(f'Maximum relative ROM error ({model}): {max(errs):e}')
     print(f'Median relative ROM error ({model}):  {np.median(errs):e}')
+    print(f'Minimum relative ROM error ({model}):  {min(errs):e}')
+    print(f'Shifted Maximum relative ROM error ({model}): {max(shifted_errs):e}')
+    print(f'Shifted Median relative ROM error ({model}):  {np.median(shifted_errs):e}')
+    print(f'Shifted Minimum relative ROM error ({model}):  {min(shifted_errs):e}')
     print(f'Maximum of ROM speedup ({model}):     {max(speedups):e}')
     print(f'Median of ROM speedup ({model}):      {np.median(speedups):e}')
     print(f'Overall time ({model}):               {t_all:e}')
@@ -144,7 +164,7 @@ def discretize_fenics(dim, n, order):
                         solver_options={'inverse': {'type': 'newton', 'rtol': 1e-6}})
     rhs = VectorOperator(op.range.zeros())
 
-    fom = StationaryModel(op, rhs,
+    fom = StationaryModel(op, rhs, output_functional=IdentityOperator(space),
                           visualizer=FenicsVisualizer(space))
 
     return fom
@@ -158,6 +178,8 @@ def discretize_ngsolve(dim, n, order):
     from ngsolve import x as x_expr, y as y_expr
     from netgen.csg import unit_cube
     from netgen.geom2d import unit_square
+
+    cache.disable_caching()
 
     if dim == 2:
         mesh = Mesh(unit_square.GenerateMesh(maxh=1/n))
@@ -178,9 +200,8 @@ def discretize_ngsolve(dim, n, order):
     u = V.TrialFunction()
     f = x_expr*sin(y_expr)
     F = BilinearForm(V, symmetric=False)
-    # us = bc-u
-    us = u+bc
-    F += SymbolicBFI(InnerProduct((1 + c*us*us)*(grad(u)+grad(bc)), grad(v)) - f*v)
+    us = u-bc
+    F += SymbolicBFI(InnerProduct((1 + c*us*us)*(grad(u)-grad(bc)), grad(v)) - f*v)
     #penalty = n
     #F += penalty*(u-g)*v*ds("right")
 
@@ -201,10 +222,12 @@ def discretize_ngsolve(dim, n, order):
     # F.Apply(bc.vec, shift._list[0].real_part.impl.vec)
 
     og = NGSolveVisualizer(mesh, V)
-    vis = ShiftedVisualizer(og, -shift)
+
+    dirichlet_shift = IdentityOperator(space) - ConstantOperator(shift, space)
     og.visualize(shift, m=None, filename='shift.vtk')
-    fom = StationaryModel(op, rhs,
-                          visualizer=vis)
+    vis = ShiftedVisualizer(og, dirichlet_shift)
+    fom = StationaryModel(op, rhs, output_functional=dirichlet_shift,
+                          visualizer=og)
     return fom
 
 

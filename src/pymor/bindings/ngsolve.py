@@ -4,7 +4,7 @@
 from pathlib import Path
 from copy import copy
 
-
+from pymor.algorithms.newton import newton
 from pymor.core.config import config
 from pymor.core.defaults import defaults
 from pymor.tools.io import change_to_directory
@@ -219,11 +219,6 @@ if config.HAVE_NGSOLVE:
             self.parameters_own = parameters
             self.unfree = np.array([not b for b in self.range.V.FreeDofs()])
 
-        def set_dirichlet_boundary_values(self, vecarray):
-            return
-            for u in vecarray._list:
-                np.putmask(u.real_part.impl.vec.FV().NumPy(), self.unfree, self.dirichlet_bc.vec)
-
         def _set_mu(self, mu=None):
             assert self.parameters.assert_compatible(mu)
             if self.parameter_setter:
@@ -238,12 +233,8 @@ if config.HAVE_NGSOLVE:
                 if u.imag_part is not None:
                     raise NotImplementedError
                 r = self.range.zero_vector()
-                ug = self.source.zero_vector()
-                ug.real_part.impl.vec.data = u.real_part.impl.vec
-                self.form.Apply(ug.real_part.impl.vec, r.real_part.impl.vec)
-                # r.real_part.impl.vec.data -= self.dirichlet_bc.vec
+                self.form.Apply(u.real_part.impl.vec, r.real_part.impl.vec)
                 np.putmask(r.real_part.impl.vec.FV().NumPy(), self.unfree, 0)
-                # r.real_part.impl.vec.data += self.dirichlet_bc.vec
                 R.append(r)
             return self.range.make_array(R)
 
@@ -252,10 +243,7 @@ if config.HAVE_NGSOLVE:
             if U._list[0].imag_part is not None:
                 raise NotImplementedError
             self._set_mu(mu)
-            ug = self.source.zero_vector()
-            ug.real_part.impl.vec.data = U._list[0].real_part.impl.vec #- self.dirichlet_bc.vec
-
-            self.form.AssembleLinearization(ug.real_part.impl.vec)
+            self.form.AssembleLinearization(U._list[0].real_part.impl.vec)
             matrix = self.form.mat
             copy = matrix.CreateMatrix()
             copy.AsVector().data = matrix.AsVector()
@@ -283,19 +271,19 @@ if config.HAVE_NGSOLVE:
         #         raise NotImplementedError
         #     self._set_mu(mu)
         #
-        #     result = ngs.GridFunction(self.range.V)
-        #     if initial_guess:
-        #         result.vec.data = initial_guess._list[0].real_part.impl.vec
-        #         assert(False)
-        #     else:
-        #         result.vec.data = self.dirichlet_bc.vec
+        #     # result = ngs.GridFunction(self.range.V)
+        #     # if initial_guess:
+        #     #     result.vec.data = initial_guess._list[0].real_part.impl.vec
+        #     #     assert(False)
+        #     # else:
+        #     #     result.vec.data = self.dirichlet_bc.vec
         #
-        #     ngs.solvers.Newton(a=self.form, u=result)
         #     rr = self.range.zeros(len(V))
+        #     # ngs.solvers.Newton(a=self.form, u=result, dirichletvalues=rr._list[0].real_part.impl.vec)
         #
-        #     rr._list[0].real_part.impl.vec.data = result.vec
+        #     # rr._list[0].real_part.impl.vec.data = result.vec
         #
-        #     return rr
+        #     return UU
 
 
     class RestrictedNGSolveOperator(Operator):
@@ -324,7 +312,7 @@ if config.HAVE_NGSOLVE:
             UU = self.unrestricted_op.source.zeros(len(U))
             for uu, u in zip(UU._list, U.to_numpy()):
                 uu.real_part.to_numpy()[self.source_dofs] = np.ascontiguousarray(u)
-                # uu.real_part.impl.vec.data -= self.unrestricted_op.dirichlet_bc.vec
+                # uu.real_part.impl.vec.data += self.unrestricted_op.dirichlet_bc.vec
 
             VV = self.unrestricted_op.range.zeros(len(U))
 
@@ -342,7 +330,7 @@ if config.HAVE_NGSOLVE:
             V = self.range.zeros(len(U))
             for v, vv in zip(V.to_numpy(), VV._list):
                 vv_np = vv.real_part.to_numpy()
-                # np.putmask(vv_np, self.unrestricted_op.unfree, 0)
+                np.putmask(vv_np, self.unrestricted_op.unfree, 0)
                 v[:] = vv_np[self.restricted_range_dofs]
             return V
 
