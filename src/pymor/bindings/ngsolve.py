@@ -3,7 +3,7 @@
 # License: BSD 2-Clause License (http://opensource.org/licenses/BSD-2-Clause)
 from pathlib import Path
 from copy import copy
-
+from scipy.sparse import csr_matrix
 
 from pymor.core.config import config
 from pymor.core.defaults import defaults
@@ -342,8 +342,9 @@ if config.HAVE_NGSOLVE:
             self.unrestricted_op._set_mu(mu)
             UU = self.unrestricted_op.source.zeros()
             UU._list[0].real_part.to_numpy()[self.source_dofs] = np.ascontiguousarray(U.to_numpy()[0])
-            matrix = np.zeros((self.unrestricted_op.source.dim, self.unrestricted_op.range.dim))
+            full_shape = (self.unrestricted_op.source.dim, self.unrestricted_op.range.dim)
 
+            values, rows, cols = [], [], []
             for element in self.restricted_elements:
                 local_dofs = element.dofs
                 finite_elment = self.unrestricted_op.source.V.GetFE(element)
@@ -359,7 +360,9 @@ if config.HAVE_NGSOLVE:
 
                 for ii, row in enumerate(element_matrix.NumPy()):
                     for jj, val in enumerate(row):
-                        matrix[local_dofs[ii], local_dofs[jj]] += val
-
+                        rows.append(local_dofs[ii])
+                        cols.append(local_dofs[jj])
+                        values.append(val)
+            matrix = csr_matrix((values, (rows, cols)), shape=full_shape)
             re_mat = matrix[:, self.source_dofs][self.restricted_range_dofs, :]
             return NumpyMatrixOperator(re_mat)
