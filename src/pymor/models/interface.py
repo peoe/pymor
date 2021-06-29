@@ -263,9 +263,8 @@ class Model(CacheableObject, ParametricObject):
                 output_d_mu_return_array=False, *, mu=None, **kwargs):
         """Compute the solution of the model and associated quantities.
 
-        This methods computes the output of the model it's internal state
-        and various associated quantities for given |parameter values|
-        `mu`.
+        This methods computes the output of the model, its internal state,
+        and various associated quantities for given |parameter values| `mu`.
 
         .. note::
 
@@ -300,7 +299,7 @@ class Model(CacheableObject, ParametricObject):
         mu
             |Parameter values| for which to compute the values.
         kwargs
-            Further keyword arguments to select further quantities that sould
+            Further keyword arguments to select further quantities that should
             be returned or to customize how the values are computed.
 
         Returns
