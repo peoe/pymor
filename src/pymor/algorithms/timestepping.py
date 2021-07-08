@@ -488,7 +488,7 @@ class ExplicitRungeKuttaIterator(SingleStepTimeStepperIterator):
         # prepare the function f in d_t y = f(t, y)
         if not isinstance(M, IdentityOperator) and (not M.parametric or 't' not in M.parameters):
             M = M.assemble(mu)
-        if not A.parametric or 't' not in A.parameters:
+        if 't' not in A.parameters:
             A = A.assemble(mu)
 
         if isinstance(F, ZeroOperator):
