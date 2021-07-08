@@ -501,7 +501,7 @@ class ExplicitRungeKuttaIterator(SingleStepTimeStepperIterator):
                     mu_t = mu.with_(t=t)
                     return M.apply_inverse(-1*A.apply(y, mu=mu_t), mu=mu_t, initial_guess=y)
         else:
-            if not F.parametric or 't' not in F.parameters:
+            if 't' not in F.parameters:
                 F = F.assemble(mu)
             if isinstance(M, IdentityOperator):
                 def f(t, y):
