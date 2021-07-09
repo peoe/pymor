@@ -12,7 +12,8 @@ ipywidgets
 jupyter_contrib_nbextensions
 matplotlib
 meshio==4.2.0
-mpi4py>=3.0.3;python_version >= "3.9"
+mpi4py>3.0.3;python_version >= "3.10"
+mpi4py>=3.0.3;python_version == "3.9"
 mpi4py>=3.0;python_version < "3.9"
 myst-nb
 nbresuse
