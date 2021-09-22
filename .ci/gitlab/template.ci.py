@@ -182,6 +182,7 @@ ci setup:
     variables:
         COVERAGE_FILE: coverage_{{script}}__{{py}}
     {%- if script == "mpi" %}
+    tags: [dustin]
     retry:
         max: 2
         when: always

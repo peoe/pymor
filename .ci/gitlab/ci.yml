@@ -172,6 +172,7 @@ mpi 3 7:
     - when: on_success
     variables:
         COVERAGE_FILE: coverage_mpi__3.7
+    tags: [dustin]
     retry:
         max: 2
         when: always
@@ -195,6 +196,7 @@ mpi 3 8:
     - when: on_success
     variables:
         COVERAGE_FILE: coverage_mpi__3.8
+    tags: [dustin]
     retry:
         max: 2
         when: always
@@ -218,6 +220,7 @@ mpi 3 9:
     - when: on_success
     variables:
         COVERAGE_FILE: coverage_mpi__3.9
+    tags: [dustin]
     retry:
         max: 2
         when: always
