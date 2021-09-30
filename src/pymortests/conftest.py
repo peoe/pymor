@@ -14,9 +14,9 @@ _common_settings = {
 settings.register_profile("ci_large", max_examples=400, **_common_settings)
 settings.register_profile("ci_pr", max_examples=100, **_common_settings)
 settings.register_profile("ci", max_examples=25, **_common_settings)
-settings.register_profile("dev", max_examples=10, **_common_settings)
+settings.register_profile("dev", max_examples=20, **_common_settings)  # 10 is not enough for vectorarrays.py
 _common_settings["verbosity"] = Verbosity.verbose
-settings.register_profile("debug", max_examples=10, **_common_settings)
+settings.register_profile("debug", max_examples=20, **_common_settings)  # s.a.
 settings.load_profile(os.getenv(u'PYMOR_HYPOTHESIS_PROFILE', 'dev'))
 
 """ This makes sure all our fixtures are available to all tests
