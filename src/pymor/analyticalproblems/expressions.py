@@ -49,6 +49,7 @@ from itertools import zip_longest
 import numpy as np
 
 from pymor.parameters.base import ParametricObject
+from pymor.core.exceptions import DolfinMissing
 
 
 builtin_max = max
@@ -58,6 +59,7 @@ def parse_expression(expression, parameters={}, values={}):
     if isinstance(expression, Expression):
         return expression
     locals_dict = {name: Parameter(name, dim) for name, dim in parameters.items()}
+    print(f'locals dict: {locals_dict}')
     return _convert_to_expression(eval(expression, dict(globals(), **values), locals_dict))
 
 
@@ -83,6 +85,7 @@ class Expression(ParametricObject):
             the expression which shall be treated as input variables.
         """
         expression = self.numpy_expr()
+        print(f'numpy expr: {expression}')
         code = compile(expression, '<expression>', 'eval')
 
         def wrapper(*args, mu={}):
@@ -112,6 +115,58 @@ class Expression(ParametricObject):
     def numpy_expr(self):
         """Called by :meth:`~Expression.to_numpy`."""
         raise NotImplementedError
+
+    def to_fenics(self, variables, mesh):
+        # sanity check before for dolfin before running code
+        try:
+            import dolfin as df
+            import ufl as uf
+        except ImportError:
+            raise DolfinMissing
+
+        # define ufl function monikers
+        _fenics_functions = {k: getattr(uf, k) for k in {'sin', 'cos', 'tan',
+                                                'sinh', 'cosh', 'tanh'}}
+                                                # ,
+                                                # 'exp', 'exp2', 'log', 'log2', 'log10', 'sqrt', 'abs', 'sign',
+                                                # 'min', 'max', 'sum', 'prod',
+                                                # 'pi', 'e',
+                                                # 'array', 'broadcast_arrays', 'newaxis'}}
+
+        expression = self.numpy_expr()
+        print(f'fenics expr: {expression}')
+        code = compile(expression, '<expression>', 'eval')
+        print(f'fenics code: {code}')
+        test_args = {'y': df.Constant(['99'])}
+        all_test_args = dict(test_args)
+        all_test_args.update({k: v for k, v in zip(['x'], [1., 1.])})
+        print(f'all test args: {all_test_args}')
+        print(f'fenics eval: {eval(code, _fenics_functions, all_test_args)}')
+
+        def wrapper(*args, fenics_params = {}):
+            if not variables and args:
+                assert len(args) == 1
+                fenics_params = args[0]
+                args = []
+            assert all(_broadcastable_shapes(args[0].shape[:-1], a.shape[:-1]) for a in args[1:])
+            if len(args) == 0:
+                input_shape = ()
+            elif len(args) == 1:
+                input_shape = args[0].shape[:-1]
+            else:
+                input_shape = (tuple(builtin_max(*s)
+                                     for s in zip_longest(*(a.shape[-2::-1] for a in args),
+                                                          fillvalue=1)))[::-1]
+            all_args = dict(fenics_params) if fenics_params else {}
+            all_args.update({k: v for k, v in zip(variables, args)})
+            result = eval(code, _fenics_functions, all_args)
+            return result
+
+        return wrapper
+
+    # def fenics_expression(self):
+    #     """Called by :meth:`~Expression.to_fenics`."""
+    #     return self.numpy_expr(self)
 
     def __getitem__(self, index):
         return Indexed(self, index)
