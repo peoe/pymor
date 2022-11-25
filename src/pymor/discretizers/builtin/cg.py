@@ -1152,31 +1152,10 @@ def discretize_stationary_cg(analytical_problem, diameter=None, domain_discretiz
 
     # assemble additional output functionals
     if p.outputs:
-        if any(v[0] not in ('l2', 'l2_boundary') for v in p.outputs):
-            raise NotImplementedError
-        outputs = []
-        for v in p.outputs:
-            if v[0] == 'l2':
-                if isinstance(v[1], LincombFunction):
-                    ops = [L2Functional(grid, vv, dirichlet_clear_dofs=False).H
-                           for vv in v[1].functions]
-                    outputs.append(LincombOperator(ops, v[1].coefficients))
-                else:
-                    outputs.append(L2Functional(grid, v[1], dirichlet_clear_dofs=False).H)
-            else:
-                if isinstance(v[1], LincombFunction):
-                    ops = [BoundaryL2Functional(grid, vv, dirichlet_clear_dofs=False).H
-                           for vv in v[1].functions]
-                    outputs.append(LincombOperator(ops, v[1].coefficients))
-                else:
-                    outputs.append(BoundaryL2Functional(grid, v[1], dirichlet_clear_dofs=False).H)
-        if len(outputs) > 1:
-            from pymor.operators.block import BlockColumnOperator
-            from pymor.operators.constructions import NumpyConversionOperator
-            output_functional = BlockColumnOperator(outputs)
-            output_functional = NumpyConversionOperator(output_functional.range) @ output_functional
-        else:
-            output_functional = outputs[0]
+        from pymor.discretizers.factory import OutputFactory
+        functional_list = [L2Functional, BoundaryL2Functional]
+        cg_factory = OutputFactory(p.outputs, grid, functional_list)
+        output_functional = cg_factory.construct_output_functional()
     else:
         output_functional = None
 
