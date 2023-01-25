@@ -48,7 +48,16 @@ class TRSurrogate(BasicObject):
         return self.rom.output(mu)[0, 0]
 
     def estimate_output_error(self, mu):
-        return self.rom.estimate_output_error(mu)
+        U_r = self.rom.solve(mu)
+        jacobian = self.rom.output_functional.jacobian(U_r, self.fom.parameters.parse(mu))
+        dual_problem = self.rom.with_(operator=self.rom.operator.H,
+                                    rhs=jacobian.H.as_range_array(mu)[0])
+        P_r = dual_problem.solve(mu)
+        d_primal = self.rom.estimate_error(mu)
+        jac_r = self.rom.solution_space.from_numpy(jacobian.array.to_numpy().reshape(-1))
+        op_H = self.rom.operator.H.apply(P_r, self.fom.parameters.parse(mu))
+        d_dual = (jac_r - op_H).norm()
+        return d_primal * d_dual + d_primal**2
 
     def extend(self, mu):
         """Try and extend the current ROM for a new parameter.
