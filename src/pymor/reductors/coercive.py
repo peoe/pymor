@@ -94,8 +94,6 @@ class CoerciveRBEstimator(ImmutableObject):
                 dual_problem = m.with_(operator=m.operator.H, rhs=jacobian.H.as_range_array(mu)[d])
                 op_H = m.operator.H.apply(dual_problem.solve(mu), mu).to_numpy()[0, 0]
                 dual_terms.append(op_H)
-            # jac_r = m.solution_space.from_numpy(jacobian.apply(jacobian.source.from_numpy(np.ones())))
-            # jac_r = m.solution_space.from_numpy(jacobian.array.to_numpy().reshape(-1))
             jac_r = jacobian.as_range_array(mu)
             dual_terms = jacobian.range.from_numpy(dual_terms)
             dual_estimate = (jac_r - dual_terms).norm()
