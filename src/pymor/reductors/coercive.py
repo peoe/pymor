@@ -84,24 +84,12 @@ class CoerciveRBEstimator(ImmutableObject):
         return est
 
     def estimate_output_error(self, U, mu, m, return_vector=False):
-        jacobian = m.output_functional.jacobian(U, mu)
-        if self.projected_output_adjoint is None and not jacobian.linear:
+        if self.projected_output_adjoint is None:
             raise NotImplementedError
         estimate = self.estimate_error(U, mu, m)
-        if jacobian.linear:
-            dual_terms = []
-            for d in range(m.dim_output):
-                dual_problem = m.with_(operator=m.operator.H, rhs=jacobian.H.as_range_array(mu)[d])
-                op_H = m.operator.H.apply(dual_problem.solve(mu), mu).to_numpy()[0, 0]
-                dual_terms.append(op_H)
-            jac_r = jacobian.as_range_array(mu)
-            dual_terms = jacobian.range.from_numpy(dual_terms)
-            dual_estimate = (jac_r - dual_terms).norm()
-            errs = estimate * dual_estimate + estimate**2
-        if self.projected_output_adjoint is not None:
-            # scale with dual norm of the output functional
-            output_functional_norms = self.projected_output_adjoint.as_range_array(mu).norm()
-            errs = estimate * output_functional_norms
+        # scale with dual norm of the output functional
+        output_functional_norms = self.projected_output_adjoint.as_range_array(mu).norm()
+        errs = estimate * output_functional_norms
         if return_vector:
             return errs
         else:
