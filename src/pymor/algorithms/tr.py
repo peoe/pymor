@@ -45,7 +45,21 @@ class TRSurrogate(BasicObject):
         return self.rom.output(mu)[0, 0]
 
     def estimate_output_error(self, mu):
+        # jacobian = m.output_functional.jacobian(U, mu)
+        # dual_terms = []
+        # for d in range(m.dim_output):
+        #     dual_problem = m.with_(operator=m.operator.H, rhs=jacobian.H.as_range_array(mu)[d])
+        #     op_H = m.operator.H.apply(dual_problem.solve(mu), mu).to_numpy()[0, 0]
+        #     dual_terms.append(op_H)
+        # jac_r = jacobian.as_range_array(mu)
+        # dual_terms = jacobian.range.from_numpy(dual_terms)
+        # dual_estimate = (jac_r - dual_terms).norm()
+        # errs = estimate * dual_estimate + estimate**2
         return self.rom.estimate_output_error(mu)
+
+    def _extend(self, mu):
+        U_h_mu = self.fom.solve(mu)
+        return self.new_reductor.extend_basis(U_h_mu)
 
     def extend(self, mu):
         """Try to extend the current ROM for a new parameter.
@@ -56,10 +70,9 @@ class TRSurrogate(BasicObject):
             The `Mu` instance for which an extension is computed.
         """
         with self.logger.block('Trying to extend the basis...'):
-            U_h_mu = self.fom.solve(mu)
             self.new_reductor = deepcopy(self.reductor)
             try:
-                self.new_reductor.extend_basis(U_h_mu)
+                self._extend(mu)
                 self.new_rom = self.new_reductor.reduce()
             except Exception:
                 self.new_reductor = self.reductor
